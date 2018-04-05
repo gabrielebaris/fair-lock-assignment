@@ -52,7 +52,7 @@ The project folder resembles the following structure:
 	* `/models`: LTSA models
 	* `/test`: Java files for testing
 
-The design workflow can be found in the [report]() file.
+The design workflow can be found in the [report](https://github.com/gabrielebaris/Fair-Lock-Assignment/blob/master/Report.pdf) file.
 
 ## License
-This project is licensed under the MIT License - see the [LICENSE]() file for details
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/gabrielebaris/Fair-Lock-Assignment/blob/master/LICENSE) file for details
