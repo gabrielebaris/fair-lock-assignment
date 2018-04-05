@@ -1,0 +1,37 @@
+// CDS Assignment 3.0 - Design model
+
+//Constants, ranges and sets
+const NumberA = 2				//Number of clients of type A
+const NumberB = 1				//Number of clients of type B
+
+range RangeA = 1..NumberA		//Range for ClientA labels
+range RangeB = 1..NumberB		//Range for ClientB labels
+
+range WaitingA = 0..NumberA		//Number of ClientA waiting threads
+range WaitingB = 0..NumberB		//Number of ClientB waiting threads
+
+set ClientsA = {a1, a2}		//ClientA labels
+set ClientsB = {b}			//ClientB labels
+
+set ClientOps = {request_a, get_a, request_b, get_b, use, release}	//Clients operations
+
+//Clients definition
+CLIENT_A = (request_a->get_a->use->release->END) + ClientOps.
+CLIENT_B = (request_b->get_b->use->release->END) + ClientOps.
+
+//Manager definition
+MANAGER = FREE,
+FREE = (request_a->get_a->MANAGE[0][0]|
+		request_b->get_b->MANAGE[0][0]),
+MANAGE[a:WaitingA][b:WaitingB] = (
+	when(a < NumberA) request_a->MANAGE[a+1][b] |
+	when(b < NumberB) request_b->MANAGE[a][b+1] |
+	when(b > 0) release->PASS_B[a][b] |
+	when(b == 0 && a > 0) release->PASS_A[a][b] |
+	when(a == 0 && b == 0) release->FREE
+),
+PASS_B[a:WaitingA][b:WaitingB] = (when(b>0) get_b->MANAGE[a][b-1]),
+PASS_A[a:WaitingA][b:WaitingB] = (when(a>0) get_a->MANAGE[a-1][b]).
+
+//Composite system
+||SYS = (ClientsA:CLIENT_A || ClientsB:CLIENT_B || {ClientsA,ClientsB}::MANAGER).

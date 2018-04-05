@@ -1,0 +1,143 @@
+// CDS Assignment 3.2 - Implementation model
+
+// ============== IMPLEMENTATION ==============
+
+// Integer variable definition, used to encode the state
+const MinInt = 0
+const MaxInt = 9
+range Int = MinInt..MaxInt
+set IntOps = {read[Int], write[Int], add[Int], sub[Int]}
+
+VAR(Init=0) = VAR[Init],
+VAR[v:Int] = (
+	read[v]->VAR[v] |
+	write[n:Int]->VAR[n] |
+	add[s:Int]->if(v+s<=MaxInt) then VAR[v+s] |
+	sub[s:Int]->if(v-s>=MinInt) then VAR[v-s]
+).
+
+//Lock definition, used for ReentrantLock
+set LockOps = {lock, unlock}
+LOCK = (lock->unlock->LOCK). 
+
+//Conditions definitions, used for Lock conditions
+set SynchOps = {await, endawait, signal, signalAll}
+const Ncond = 3
+range Rcond = 1..Ncond
+set Conditions = {c[i:Rcond]}
+// 1 for waitA
+// 2 for waitB
+// 3 for waitAccess
+
+CONDITION = EMPTY,
+EMPTY = (await->WAIT[1] | {signal, signalAll}->EMPTY),
+WAIT[n:1..3] = (
+	when (n < 3) await->WAIT[n+1] |
+	signal->endawait->if(n==1) then EMPTY else WAIT[n-1] |
+	signalAll->LOOP[n]
+),
+LOOP[n:1..3] = (endawait->if(n==1) then EMPTY else LOOP[n-1]).
+
+AWAIT(I=1) = (c[I].await->unlock->c[I].endawait->lock->END).
+SIGNAL(I=1) = (c[I].signal->END).
+SIGNALALL(I=1) = (c[I].signalAll->END).
+
+//Clients definition
+const NumberA = 2				//Number of clients of type A
+const NumberB = 1				//Number of clients of type B
+const NumberClients = NumberA+NumberB
+
+range RangeA = 1..NumberA		//Range for ClientA labels
+range RangeB = 1..NumberB		//Range for ClientB labels
+
+range WaitingA = 0..NumberA		//Number of ClientA waiting threads
+range WaitingB = 0..NumberB		//Number of ClientB waiting threads
+
+set ClientsA = {a1, a2}	//ClientA labels
+set ClientsB = {b}	//ClientB labels
+set Clients = {ClientsA, ClientsB}
+
+set ClientOps = {request_a, get_a, request_b, get_b, use, release} //Set of client operations
+
+CLIENT_A = REQUEST_A;USE,
+USE = (use->RELEASE;END) + {ClientOps, Conditions.SynchOps, state.IntOps, LockOps}.
+
+CLIENT_B = REQUEST_B;USE,
+USE = (use->RELEASE;END) + {ClientOps, Conditions.SynchOps, state.IntOps, LockOps}.
+
+
+//Manager
+//Method request_a
+REQUEST_A = (lock->CHECK_ERROR),
+CHECK_ERROR = (state.read[s:Int] -> if(s==3 || s==5 || s==9) then ERROR
+										else WHILE_ACCESS),
+WHILE_ACCESS = (state.read[s:Int] -> if(s >= 6) then AWAIT(3);WHILE_ACCESS
+									 	else SET_STATE),
+SET_STATE = (request_a->state.read[s:Int]->state.add[1]->CHECK),
+CHECK = (state.read[s:Int] -> if(s != 1) then WHILE_A
+								else END_REQUEST),
+WHILE_A = (state.read[s:Int] -> if(s != 8 && s!= 9) then AWAIT(1);WHILE_A
+							  		else ENTER),
+ENTER = (state.read[s:Int]->state.sub[7]->END_REQUEST),
+END_REQUEST = SIGNALALL(3);LEAVE,
+LEAVE = (get_a->unlock->END).
+
+//Method request_b
+REQUEST_B = (lock->CHECK_ERROR),
+CHECK_ERROR = (state.read[s:Int] -> if(s >= 3 && s <= 7) then ERROR
+										else WHILE_ACCESS),
+WHILE_ACCESS = (state.read[s:Int] -> if(s >= 8) then AWAIT(3);WHILE_ACCESS
+										else SET_STATE),
+SET_STATE = (request_b->state.read[s:Int] -> if(s == 0) then (state.add[1]->CHECK)
+												else (state.add[3]->CHECK)),
+CHECK = (state.read[s:Int] -> if(s != 1) then WHILE_B
+								else END_REQUEST),
+WHILE_B = (state.read[s:Int] -> if(s != 6 && s!= 7) then AWAIT(2);WHILE_B
+									else ENTER),
+ENTER = (state.read[s:Int]->state.sub[5]->END_REQUEST),
+END_REQUEST = SIGNALALL(3);LEAVE,
+LEAVE = (get_b->unlock->END).
+
+//Method release
+RELEASE = (lock->CHECK_ERROR),
+CHECK_ERROR = (state.read[s:Int] -> if(s == 0 || s >= 6) then ERROR
+										else SET_STATE),
+SET_STATE = (release->state.read[s:Int] -> if(s == 2 || s == 3) then (state.add[6]->AWAKE)
+										else if(s == 4 || s == 5) then (state.add[2]->AWAKE)
+										else (state.write[0]->AWAKE)),
+AWAKE = (state.read[s:Int] -> if(s == 6 || s == 7) then SIGNAL(2);END_RELEASE
+								else if(s == 8 || s == 9) then SIGNAL(1);END_RELEASE
+								else END_RELEASE),
+END_RELEASE = SIGNALALL(3);LEAVE,
+LEAVE = (unlock->END).
+
+// Composite system
+||SYS = (ClientsA:CLIENT_A || ClientsB:CLIENT_B || Clients::LOCK || Clients::state:VAR 
+			|| Clients::Conditions:CONDITION).
+
+
+
+
+
+
+// ============== VERIFICATION ==============
+
+// The property is exactly the design model
+property PRIORITY_B = FREE,
+FREE = (request_a->get_a->MANAGE[0][0]|
+		request_b->get_b->MANAGE[0][0]),
+MANAGE[a:WaitingA][b:WaitingB] = (
+	when(a < NumberA) request_a->MANAGE[a+1][b] |
+	when(b < NumberB) request_b->MANAGE[a][b+1] |
+	when(b > 0) release->PASS_B[a][b] |
+	when(b == 0 && a > 0) release->PASS_A[a][b] |
+	when(a == 0 && b == 0) release->FREE
+),
+PASS_B[a:WaitingA][b:WaitingB] = (when(b>0) get_b->MANAGE[a][b-1]),
+PASS_A[a:WaitingA][b:WaitingB] = (when(a>0) get_a->MANAGE[a-1][b]).
+
+// Verification of the property, combining it with the implementation model
+||VERIFY = (SYS || PRIORITY_B)/{request_a/ClientsA.request_a, get_a/ClientsA.get_a,
+								request_b/ClientsB.request_b, get_b/ClientsB.get_b,
+								release/Clients.release, use/Clients.use}.
+
